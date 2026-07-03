@@ -1,0 +1,98 @@
+
+const axios = require('axios');
+const API_KEY = '051932d43495460886bb2b651ff54660'; // 👈 अपनी API key डालो (free में twelvedata.com से लो)
+
+function formatPair(pair) {
+  return pair.replace('/', '');
+}
+
+async function fetchCandles(pair, interval, count = 100) {
+  const symbol = formatPair(pair);
+  try {
+    const res = await axios.get(`https://api.twelvedata.com/time_series`, {
+      params: { symbol, interval, outputsize: count, apikey: API_KEY }
+    });
+    return res.data.values.reverse().map(c => ({
+      time: c.datetime,
+      open: parseFloat(c.open),
+      high: parseFloat(c.high),
+      low: parseFloat(c.low),
+      close: parseFloat(c.close)
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function getDailyBias(daily) {
+  if (daily.length < 2) return null;
+  const prev = daily[daily.length - 2];
+  const curr = daily[daily.length - 1];
+  if (curr.low < prev.low && curr.close > prev.low) return 'BULLISH';
+  if (curr.high > prev.high && curr.close < prev.high) return 'BEARISH';
+  return null;
+}
+
+function findPOI(candles1h, bias) {
+  const highs = candles1h.map(c => c.high);
+  const lows = candles1h.map(c => c.low);
+  if (bias === 'BULLISH') {
+    const idx = lows.indexOf(Math.min(...lows));
+    return { price: lows[idx], type: 'DEMAND' };
+  } else {
+    const idx = highs.indexOf(Math.max(...highs));
+    return { price: highs[idx], type: 'SUPPLY' };
+  }
+}
+
+async function analyzePair(pair) {
+  const [daily, candles1h, candles5m, candles1m] = await Promise.all([
+    fetchCandles(pair, '1day', 10),
+    fetchCandles(pair, '1h', 50),
+    fetchCandles(pair, '5min', 50),
+    fetchCandles(pair, '1min', 50)
+  ]);
+
+  if (!candles1m.length) return { pair, direction: 'NO SIGNAL', probability: 0, reason: 'No data' };
+  const bias = getDailyBias(daily);
+  if (!bias) return { pair, direction: 'NO SIGNAL', probability: 0, reason: 'Bias unclear' };
+  const poi = findPOI(candles1h, bias);
+  if (!poi) return { pair, direction: 'NO SIGNAL', probability: 0, reason: 'No POI' };
+
+  const lastPrice = candles1m[candles1m.length - 1].close;
+  const isNearPOI = Math.abs(lastPrice - poi.price) < 0.0005;
+  const disp = checkDisplacement(candles5m);
+  const idm = detectIDMSwipe(candles1m);
+
+  const confirmations = [isNearPOI, disp, idm].filter(v => v).length;
+  if (confirmations >= 2) {
+    return {
+      pair,
+      direction: bias === 'BULLISH' ? 'UP' : 'DOWN',
+      probability: Math.min(confirmations / 3, 1) * 100,
+      reason: `Bias=${bias}, NearPOI=${isNearPOI}, Disp=${disp}, IDM=${idm}`
+    };
+  }
+  return { pair, direction: 'NO SIGNAL', probability: 0, reason: 'Low confirmations' };
+}
+
+function checkDisplacement(candles5m) {
+  const last = candles5m[candles5m.length - 1];
+  const body = Math.abs(last.close - last.open);
+  const range = last.high - last.low;
+  return body / range > 0.6;
+}
+
+function detectIDMSwipe(candles1m) {
+  if (candles1m.length < 5) return false;
+  const last = candles1m[candles1m.length - 1];
+  const lows = [];
+  for (let i = 2; i < candles1m.length - 2; i++) {
+    if (candles1m[i].low < candles1m[i-1].low && candles1m[i].low < candles1m[i+1].low) lows.push(candles1m[i]);
+  }
+  if (lows.length < 2) return false;
+  const prevSwing = lows[lows.length - 1];
+  return last.low < prevSwing.low && last.close > prevSwing.low;
+}
+
+module.exports = { analyzePair };
