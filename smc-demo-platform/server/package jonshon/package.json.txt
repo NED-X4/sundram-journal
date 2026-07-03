@@ -1,0 +1,86 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+app.use(cors());
+app.use(express.json());
+
+// डेमो अकाउंट
+let user = {
+  balance: 10000,
+  trades: []
+};
+
+// सारे Quotex पेयर
+const ALL_PAIRS = [
+  'EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD', 'USD/CHF', 'NZD/USD',
+  'GBP/JPY', 'EUR/JPY', 'AUD/JPY', 'XAU/USD', 'XAG/USD', 'BTC/USD', 'ETH/USD',
+  'US30', 'US100', 'GER40'
+];
+
+// बॉट इंजन को लोड किया
+const { analyzePair } = require('./bot-engine');
+
+// खाते की जानकारी
+app.get('/api/account', (req, res) => {
+  res.json({ balance: user.balance, trades: user.trades.length });
+});
+
+// ट्रेड प्लेस करो (डेमो)
+app.post('/api/trade', (req, res) => {
+  const { pair, direction, amount, entryPrice } = req.body;
+  const trade = { id: Date.now(), pair, direction, amount, entryPrice, exitPrice: null, time: new Date() };
+  user.trades.push(trade);
+  res.json({ success: true, trade });
+});
+
+// ट्रेड बंद करो
+app.post('/api/trade/:id/close', (req, res) => {
+  const { id } = req.params;
+  const { exitPrice } = req.body;
+  const trade = user.trades.find(t => t.id === parseInt(id));
+  if (!trade) return res.status(404).json({ error: 'Not found' });
+  trade.exitPrice = exitPrice;
+  const pnl = trade.direction === 'BUY' ? (exitPrice - trade.entryPrice) * trade.amount : (trade.entryPrice - exitPrice) * trade.amount;
+  user.balance += pnl;
+  res.json({ success: true, balance: user.balance });
+});
+
+// जर्नल
+app.get('/api/journal', (req, res) => {
+  const closed = user.trades.filter(t => t.exitPrice !== null);
+  const stats = {
+    total: closed.length,
+    wins: closed.filter(t => {
+      const p = t.direction === 'BUY' ? (t.exitPrice - t.entryPrice) * t.amount : (t.entryPrice - t.exitPrice) * t.amount;
+      return p > 0;
+    }).length,
+    totalPnl: closed.reduce((sum, t) => {
+      const p = t.direction === 'BUY' ? (t.exitPrice - t.entryPrice) * t.amount : (t.entryPrice - t.exitPrice) * t.amount;
+      return sum + p;
+    }, 0)
+  };
+  res.json({ trades: user.trades, stats });
+});
+
+// सिग्नल भेजने के लिए WebSocket
+io.on('connection', (socket) => {
+  console.log('Client connected');
+  const interval = setInterval(async () => {
+    for (const pair of ALL_PAIRS) {
+      const signal = await analyzePair(pair);
+      if (signal.direction !== 'NO SIGNAL') {
+        socket.emit('bot_signal', signal);
+      }
+    }
+  }, 60000);
+  socket.on('disconnect', () => clearInterval(interval));
+});
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

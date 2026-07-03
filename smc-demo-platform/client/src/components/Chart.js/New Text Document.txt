@@ -1,0 +1,18 @@
+import React, { useEffect, useRef } from 'react';
+import { createChart } from 'lightweight-charts';
+
+const Chart = ({ pair }) => {
+  const chartContainerRef = useRef();
+  const chartRef = useRef(null);
+  const seriesRef = useRef(null);
+
+  useEffect(() => {
+    chartRef.current = createChart(chartContainerRef.current, { width: chartContainerRef.current.clientWidth, height: 400 });
+    seriesRef.current = chartRef.current.addCandlestickSeries();
+    // यहाँ आप चाहें तो API से डेटा ला सकते हैं, अभी डेमो के लिए खाली है
+  }, [pair]);
+
+  return <div ref={chartContainerRef} />;
+};
+
+export default Chart;

@@ -1,0 +1,65 @@
+import React, { useState, useEffect } from 'react';
+import Chart from './components/Chart';
+import TradePanel from './components/TradePanel';
+import SignalsTable from './components/SignalsTable';
+import Journal from './components/Journal';
+import axios from 'axios';
+import { io } from 'socket.io-client';
+
+const SERVER = 'http://localhost:5000';
+
+function App() {
+  const [pair, setPair] = useState('EUR/USD');
+  const [balance, setBalance] = useState(10000);
+  const [balanceInput, setBalanceInput] = useState(10000);
+  const [signals, setSignals] = useState([]);
+  const [showJournal, setShowJournal] = useState(false);
+  const [theme, setTheme] = useState('light');
+
+  useEffect(() => {
+    axios.get(`${SERVER}/api/account`).then(r => setBalance(r.data.balance));
+    const socket = io(SERVER);
+    socket.on('bot_signal', (signal) => {
+      setSignals(prev => [signal, ...prev].slice(0, 20));
+    });
+    return () => socket.disconnect();
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  const handlePlaceTrade = (trade) => {
+    axios.post(`${SERVER}/api/trade`, trade).then(() => {
+      axios.get(`${SERVER}/api/account`).then(r => setBalance(r.data.balance));
+    });
+  };
+
+  return (
+    <div className="app" style={{ display: 'flex', height: '100vh' }}>
+      <div style={{ width: 300, padding: 10, borderRight: '1px solid #ccc', background: 'var(--panel-bg)' }}>
+        <h2>Demo Broker</h2>
+        <p>Balance: ${balance.toFixed(2)}</p>
+        <input type="number" value={balanceInput} onChange={e => setBalanceInput(e.target.value)} placeholder="Set Balance" />
+        <button onClick={() => setBalance(Number(balanceInput))}>Set</button>
+        <br/><br/>
+        <select value={pair} onChange={e => setPair(e.target.value)}>
+          {['EUR/USD','GBP/USD','USD/JPY','AUD/USD','XAU/USD','BTC/USD','US30'].map(p => <option key={p}>{p}</option>)}
+        </select>
+        <TradePanel pair={pair} currentPrice={1.0} onPlaceTrade={handlePlaceTrade} />
+        <br/>
+        <button onClick={() => setShowJournal(!showJournal)}>Journal</button>
+        <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+          {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+        </button>
+      </div>
+      <div style={{ flex: 1, background: 'var(--bg)' }}>
+        <Chart pair={pair} />
+        <SignalsTable signals={signals} />
+      </div>
+      {showJournal && <Journal onClose={() => setShowJournal(false)} />}
+    </div>
+  );
+}
+
+export default App;

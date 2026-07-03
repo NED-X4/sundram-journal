@@ -1,0 +1,11 @@
+const SignalsTable = ({ signals }) => (
+  <table>
+    <thead><tr><th>Pair</th><th>Direction</th><th>Probability</th><th>Reason</th></tr></thead>
+    <tbody>
+      {signals.map((s, i) => (
+        <tr key={i}><td>{s.pair}</td><td style={{ color: s.direction === 'UP' ? 'green' : 'red' }}>{s.direction}</td><td>{s.probability.toFixed(0)}%</td><td>{s.reason}</td></tr>
+      ))}
+    </tbody>
+  </table>
+);
+export default SignalsTable;

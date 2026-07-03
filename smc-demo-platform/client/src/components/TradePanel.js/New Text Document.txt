@@ -1,0 +1,16 @@
+import React, { useState } from 'react';
+
+const TradePanel = ({ pair, currentPrice, onPlaceTrade }) => {
+  const [amount, setAmount] = useState(10);
+  const handle = (dir) => onPlaceTrade({ pair, direction: dir, amount, entryPrice: currentPrice });
+  return (
+    <div>
+      <h4>{pair} @ {currentPrice}</h4>
+      <input placeholder="Amount" value={amount} onChange={e => setAmount(e.target.value)} />
+      <button onClick={() => handle('BUY')}>BUY</button>
+      <button onClick={() => handle('SELL')}>SELL</button>
+    </div>
+  );
+};
+
+export default TradePanel;
